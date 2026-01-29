@@ -1,6 +1,5 @@
-// Configuration - GitHub Raw URL for db.json
+// Configuration
 const DB_URL = 'db.json';
-
 const ITEMS_PER_PAGE = 10;
 
 // State management
@@ -17,17 +16,35 @@ let sortConfig = {
  */
 async function fetchProducts() {
     try {
+        console.log('📥 Fetching products from:', DB_URL);
         const response = await fetch(DB_URL);
+        
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
+        
         const data = await response.json();
-        allProducts = data.filter(p => p.id && p.title && p.price && p.description);
+        console.log('✅ Fetched data:', data);
+        console.log('📊 Total items:', data.length);
+        
+        // Filter products with required fields
+        allProducts = data.filter(p => {
+            const isValid = p.id && p.title && p.price && p.description;
+            if (!isValid) {
+                console.warn('⚠️ Invalid product:', p);
+            }
+            return isValid;
+        });
+        
+        console.log('✅ Valid products:', allProducts.length);
+        console.log('📸 First product images:', allProducts[0]?.images);
+        
         filteredProducts = [...allProducts];
         renderTable();
         updateStats();
+        
     } catch (error) {
-        console.error('Error fetching products:', error);
+        console.error('❌ Error fetching products:', error);
         showError(`❌ Failed to load products: ${error.message}`);
     }
 }
@@ -161,19 +178,38 @@ function renderTable() {
 }
 
 /**
- * Create table row HTML
+ * Create table row HTML - FIX FOR IMAGES
  */
 function createTableRow(product) {
-    const imageUrl = product.images && product.images[0] ? product.images[0] : 'https://placehold.co/60x60?text=No+Image';
+    // ✅ FIX: Xử lý ảnh đúng cách
+    let imageUrl = 'https://placehold.co/60x60?text=No+Image';
+    
+    // Kiểm tra images array
+    if (product.images && Array.isArray(product.images) && product.images.length > 0) {
+        const firstImage = product.images[0];
+        console.log('🖼️ Product:', product.title, '| Image:', firstImage);
+        
+        if (firstImage && typeof firstImage === 'string' && firstImage.trim() !== '') {
+            imageUrl = firstImage.trim();
+        }
+    }
+    
     const categoryName = product.category && product.category.name ? product.category.name : 'Uncategorized';
-    const title = escapeHtml(product.title);
-    const description = escapeHtml(product.description).substring(0, 50) + '...';
+    const title = escapeHtml(product.title || 'Unknown');
+    const description = escapeHtml((product.description || 'N/A').substring(0, 50) + '...');
+    const price = product.price ? product.price.toFixed(2) : '0.00';
     
     return `
         <tr>
             <td>
-                <img src="${imageUrl}" alt="${title}" class="product-image" 
-                     onerror="this.src='https://placehold.co/60x60?text=Error'">
+                <img 
+                    src="${imageUrl}" 
+                    alt="${title}" 
+                    class="product-image"
+                    loading="lazy"
+                    onerror="console.log('Image failed:', '${imageUrl}'); this.src='https://placehold.co/60x60?text=No+Image'"
+                    style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;"
+                >
             </td>
             <td>
                 <strong>${title}</strong>
@@ -185,7 +221,7 @@ function createTableRow(product) {
                 <small class="text-muted">${description}</small>
             </td>
             <td>
-                <span class="price-badge">$${product.price.toFixed(2)}</span>
+                <span class="price-badge">$${price}</span>
             </td>
             <td>
                 <button class="btn btn-add-cart add-to-cart-btn" data-product-id="${product.id}">
