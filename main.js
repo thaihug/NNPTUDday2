@@ -1,399 +1,368 @@
 // Configuration
-const DB_URL = 'db.json';
+const API_BASE = 'http://localhost:3000';
 const ITEMS_PER_PAGE = 10;
 
-// State management
-let allProducts = [];
-let filteredProducts = [];
+// State
+let allPosts = []; // posts from server
+let allComments = []; // comments from server
+let filteredPosts = [];
 let currentPage = 1;
-let sortConfig = {
-    field: null,
-    direction: 'asc'
-};
+let sortConfig = { field: null, direction: 'asc' };
+let commentsOpen = {}; // track open comment panels
 
 /**
- * Fetch products from GitHub
+ * Fetch posts and comments
  */
-async function fetchProducts() {
+async function fetchData() {
     try {
-        console.log('📥 Fetching products from:', DB_URL);
-        const response = await fetch(DB_URL);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        console.log('📥 Fetching posts and comments from API:', API_BASE);
+        const [postsRes, commentsRes] = await Promise.all([
+            fetch(`${API_BASE}/posts`),
+            fetch(`${API_BASE}/comments`)
+        ]);
+
+        if (!postsRes.ok || !commentsRes.ok) {
+            throw new Error('Failed to fetch data from server');
         }
-        
-        const data = await response.json();
-        console.log('✅ Fetched data:', data);
-        console.log('📊 Total items:', data.length);
-        
-        // Filter products with required fields
-        allProducts = data.filter(p => {
-            const isValid = p.id && p.title && p.price && p.description;
-            if (!isValid) {
-                console.warn('⚠️ Invalid product:', p);
-            }
-            return isValid;
-        });
-        
-        console.log('✅ Valid products:', allProducts.length);
-        console.log('📸 First product images:', allProducts[0]?.images);
-        
-        filteredProducts = [...allProducts];
+
+        const posts = await postsRes.json();
+        const comments = await commentsRes.json();
+
+        allPosts = posts.map(p => ({ ...p }));
+        allComments = comments.map(c => ({ ...c }));
+
+        // Ensure ids are strings
+        allPosts.forEach(p => { p.id = p.id.toString(); if (p.isDeleted === undefined) p.isDeleted = false; });
+        allComments.forEach(c => { c.id = c.id.toString(); c.postId = c.postId.toString(); });
+
+        filteredPosts = [...allPosts];
         renderTable();
         updateStats();
-        
-    } catch (error) {
-        console.error('❌ Error fetching products:', error);
-        showError(`❌ Failed to load products: ${error.message}`);
+
+    } catch (err) {
+        console.error('❌', err);
+        showError('Failed to load posts/comments. Make sure json-server is running (npx json-server db.json).');
     }
 }
 
-/**
- * Handle search input with onChanged event
- */
+/** Search */
 function handleSearch() {
-    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    const q = document.getElementById('searchInput').value.toLowerCase().trim();
     currentPage = 1;
-    
-    if (!query) {
-        filteredProducts = [...allProducts];
-    } else {
-        filteredProducts = allProducts.filter(product => {
-            const title = product.title ? product.title.toLowerCase() : '';
-            const category = product.category && product.category.name ? product.category.name.toLowerCase() : '';
-            const description = product.description ? product.description.toLowerCase() : '';
-            
-            return title.includes(query) || category.includes(query) || description.includes(query);
+    if (!q) filteredPosts = [...allPosts];
+    else {
+        filteredPosts = allPosts.filter(p => {
+            const title = (p.title || '').toLowerCase();
+            const body = (p.body || '').toLowerCase();
+            return title.includes(q) || body.includes(q);
         });
     }
-    
     renderTable();
     updateStats();
 }
 
-/**
- * Sort by Name
- */
+/** Sorting */
 function sortByName() {
     currentPage = 1;
-    
-    if (sortConfig.field === 'title') {
-        sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
-    } else {
-        sortConfig.field = 'title';
-        sortConfig.direction = 'asc';
-    }
-    
-    filteredProducts.sort((a, b) => {
-        let valA = a.title.toLowerCase();
-        let valB = b.title.toLowerCase();
-        
-        if (sortConfig.direction === 'asc') {
-            return valA.localeCompare(valB);
-        } else {
-            return valB.localeCompare(valA);
-        }
+    if (sortConfig.field === 'title') sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    else { sortConfig.field = 'title'; sortConfig.direction = 'asc'; }
+    filteredPosts.sort((a, b) => {
+        const A = (a.title || '').toLowerCase();
+        const B = (b.title || '').toLowerCase();
+        return sortConfig.direction === 'asc' ? A.localeCompare(B) : B.localeCompare(A);
     });
-    
     updateSortIcons();
     renderTable();
 }
-
-/**
- * Sort by Price
- */
-function sortByPrice() {
+function sortByViews() {
     currentPage = 1;
-    
-    if (sortConfig.field === 'price') {
-        sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
-    } else {
-        sortConfig.field = 'price';
-        sortConfig.direction = 'asc';
-    }
-    
-    filteredProducts.sort((a, b) => {
-        if (sortConfig.direction === 'asc') {
-            return a.price - b.price;
-        } else {
-            return b.price - a.price;
-        }
-    });
-    
+    if (sortConfig.field === 'views') sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    else { sortConfig.field = 'views'; sortConfig.direction = 'asc'; }
+    filteredPosts.sort((a, b) => sortConfig.direction === 'asc' ? (a.views - b.views) : (b.views - a.views));
     updateSortIcons();
     renderTable();
 }
-
-/**
- * Update sort icons
- */
 function updateSortIcons() {
-    document.getElementById('nameIcon').innerHTML = 
-        sortConfig.field === 'title' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
-    document.getElementById('priceIcon').innerHTML = 
-        sortConfig.field === 'price' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
+    document.getElementById('nameIcon').innerHTML = sortConfig.field === 'title' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
+    document.getElementById('viewsIcon').innerHTML = sortConfig.field === 'views' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
 }
 
-/**
- * Reset to original data
- */
+/** Reset */
 function resetData() {
     document.getElementById('searchInput').value = '';
     currentPage = 1;
     sortConfig = { field: null, direction: 'asc' };
-    filteredProducts = [...allProducts];
+    filteredPosts = [...allPosts];
     updateSortIcons();
     renderTable();
     updateStats();
 }
 
-/**
- * Render table with pagination
- */
+/** Render table with pagination */
 function renderTable() {
     const tbody = document.getElementById('productsBody');
-    const noDataMsg = document.getElementById('noDataMessage');
+    const noData = document.getElementById('noDataMessage');
     const paginationSection = document.getElementById('paginationSection');
-    
-    if (filteredProducts.length === 0) {
+
+    if (filteredPosts.length === 0) {
         tbody.innerHTML = '';
-        noDataMsg.style.display = 'block';
+        noData.style.display = 'block';
         paginationSection.style.display = 'none';
         return;
     }
-    
-    noDataMsg.style.display = 'none';
-    
-    // Pagination
-    const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
-    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIdx = startIdx + ITEMS_PER_PAGE;
-    const pageProducts = filteredProducts.slice(startIdx, endIdx);
-    
-    tbody.innerHTML = pageProducts.map(product => createTableRow(product)).join('');
-    
-    attachCartListeners();
+    noData.style.display = 'none';
+
+    const totalPages = Math.ceil(filteredPosts.length / ITEMS_PER_PAGE);
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const pageItems = filteredPosts.slice(start, start + ITEMS_PER_PAGE);
+
+    tbody.innerHTML = pageItems.map(p => createPostRow(p)).join('');
+    attachRowListeners();
     renderPagination(totalPages);
 }
 
-/**
- * Create table row HTML - FIX FOR IMAGES
- */
-function createTableRow(product) {
-    // ✅ FIX: Xử lý ảnh đúng cách
-    let imageUrl = 'https://placehold.co/60x60?text=No+Image';
-    
-    // Kiểm tra images array
-    if (product.images && Array.isArray(product.images) && product.images.length > 0) {
-        const firstImage = product.images[0];
-        console.log('🖼️ Product:', product.title, '| Image:', firstImage);
-        
-        if (firstImage && typeof firstImage === 'string' && firstImage.trim() !== '') {
-            imageUrl = firstImage.trim();
-        }
-    }
-    
-    const categoryName = product.category && product.category.name ? product.category.name : 'Uncategorized';
-    const title = escapeHtml(product.title || 'Unknown');
-    const description = escapeHtml((product.description || 'N/A').substring(0, 50) + '...');
-    const price = product.price ? product.price.toFixed(2) : '0.00';
-    
+function createPostRow(p) {
+    const deletedClass = p.isDeleted ? 'deleted' : '';
+    const commentsCount = allComments.filter(c => c.postId === p.id).length;
+    const title = escapeHtml(p.title || 'Untitled');
+    const body = escapeHtml((p.body || '').substring(0, 80) + (p.body && p.body.length > 80 ? '...' : ''));
+    const views = p.views || 0;
+
     return `
-        <tr>
+        <tr id="post-${p.id}" class="${deletedClass}">
+            <td><strong>${title}</strong></td>
+            <td><small class="text-muted">${body}</small></td>
+            <td>${views}</td>
             <td>
-                <img 
-                    src="${imageUrl}" 
-                    alt="${title}" 
-                    class="product-image"
-                    loading="lazy"
-                    onerror="console.log('Image failed:', '${imageUrl}'); this.src='https://placehold.co/60x60?text=No+Image'"
-                    style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;"
-                >
+                <button class="btn btn-sm btn-primary btn-comments" data-id="${p.id}">Comments (${commentsCount})</button>
+                <button class="btn btn-sm btn-secondary btn-edit" data-id="${p.id}">Edit</button>
+                ${p.isDeleted ? `<button class="btn btn-sm btn-success btn-restore" data-id="${p.id}">Restore</button>` : `<button class="btn btn-sm btn-danger btn-delete" data-id="${p.id}">Delete</button>`}
             </td>
-            <td>
-                <strong>${title}</strong>
-            </td>
-            <td>
-                <span class="category-badge">${categoryName}</span>
-            </td>
-            <td>
-                <small class="text-muted">${description}</small>
-            </td>
-            <td>
-                <span class="price-badge">$${price}</span>
-            </td>
-            <td>
-                <button class="btn btn-add-cart add-to-cart-btn" data-product-id="${product.id}">
-                    <i class="fas fa-shopping-cart"></i> Add
-                </button>
+        </tr>
+        <tr id="comments-row-${p.id}" class="comments-row" style="display:none">
+            <td colspan="4">
+                <div id="comments-container-${p.id}"></div>
             </td>
         </tr>
     `;
 }
 
-/**
- * Render pagination
- */
 function renderPagination(totalPages) {
     const paginationSection = document.getElementById('paginationSection');
     const paginationHtml = document.getElementById('pagination');
-    
-    if (totalPages <= 1) {
-        paginationSection.style.display = 'none';
-        return;
-    }
-    
+    if (totalPages <= 1) { paginationSection.style.display = 'none'; return; }
     paginationSection.style.display = 'flex';
+
     let html = '';
-    
-    // Previous button
-    html += `
-        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">
-                <i class="fas fa-chevron-left"></i>
-            </a>
-        </li>
-    `;
-    
-    // Page numbers
+    html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;"> <i class="fas fa-chevron-left"></i></a></li>`;
+
     for (let i = 1; i <= totalPages; i++) {
         if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
-            html += `
-                <li class="page-item ${i === currentPage ? 'active' : ''}">
-                    <a class="page-link" href="#" onclick="goToPage(${i}); return false;">${i}</a>
-                </li>
-            `;
+            html += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="goToPage(${i}); return false;">${i}</a></li>`;
         } else if (i === currentPage - 2 || i === currentPage + 2) {
             html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
         }
     }
-    
-    // Next button
-    html += `
-        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">
-                <i class="fas fa-chevron-right"></i>
-            </a>
-        </li>
-    `;
-    
+
+    html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;"><i class="fas fa-chevron-right"></i></a></li>`;
     paginationHtml.innerHTML = html;
 }
 
-/**
- * Go to page
- */
 function goToPage(page) {
-    const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
-    if (page >= 1 && page <= totalPages) {
-        currentPage = page;
-        renderTable();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    const totalPages = Math.ceil(filteredPosts.length / ITEMS_PER_PAGE);
+    if (page >= 1 && page <= totalPages) { currentPage = page; renderTable(); window.scrollTo({ top:0, behavior: 'smooth' }); }
 }
 
-/**
- * Attach cart listeners
- */
-function attachCartListeners() {
-    document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const productId = this.getAttribute('data-product-id');
-            const product = allProducts.find(p => p.id == productId);
-            if (product) {
-                addToCart(product);
-            }
-        });
+/** Row listeners (edit/delete/comments) */
+function attachRowListeners() {
+    // comments toggle
+    document.querySelectorAll('.btn-comments').forEach(btn => {
+        btn.onclick = () => toggleComments(btn.getAttribute('data-id'));
+    });
+    // edit
+    document.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.onclick = () => openEditDialog(btn.getAttribute('data-id'));
+    });
+    // delete
+    document.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.onclick = () => softDeletePost(btn.getAttribute('data-id'));
+    });
+    // restore
+    document.querySelectorAll('.btn-restore').forEach(btn => {
+        btn.onclick = () => restorePost(btn.getAttribute('data-id'));
     });
 }
 
-/**
- * Add to cart
- */
-function addToCart(product) {
-    let cart = JSON.parse(localStorage.getItem('cart')) || [];
-    const existingItem = cart.find(item => item.id === product.id);
-    
-    if (existingItem) {
-        existingItem.quantity += 1;
+/** Toggle comments panel */
+function toggleComments(postId) {
+    const row = document.getElementById(`comments-row-${postId}`);
+    const container = document.getElementById(`comments-container-${postId}`);
+    if (row.style.display === 'none') {
+        row.style.display = ''; // show
+        renderComments(postId);
     } else {
-        cart.push({
-            id: product.id,
-            title: product.title,
-            price: product.price,
-            quantity: 1,
-            image: product.images && product.images[0] ? product.images[0] : ''
-        });
+        row.style.display = 'none';
+        container.innerHTML = '';
     }
-    
-    localStorage.setItem('cart', JSON.stringify(cart));
-    showNotification(`✅ ${product.title} added to cart!`);
 }
 
-/**
- * Show notification
- */
+function renderComments(postId) {
+    const container = document.getElementById(`comments-container-${postId}`);
+    const comments = allComments.filter(c => c.postId === postId);
+
+    container.innerHTML = `
+        <div class="mb-2">
+            <strong>Comments</strong>
+            <div id="comments-list-${postId}" class="mt-2"></div>
+            <div class="input-group mt-3">
+                <input type="text" id="new-comment-${postId}" class="form-control" placeholder="Write a comment...">
+                <button class="btn btn-primary" onclick="createComment('${postId}')">Add</button>
+            </div>
+        </div>
+    `;
+
+    const listEl = document.getElementById(`comments-list-${postId}`);
+    if (comments.length === 0) {
+        listEl.innerHTML = '<div class="text-muted">No comments yet.</div>';
+    } else {
+        listEl.innerHTML = comments.map(c => `
+            <div class="d-flex align-items-start gap-2 mb-2" id="comment-${c.id}">
+                <div class="flex-grow-1">
+                    <small>${escapeHtml(c.text)}</small>
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editCommentPrompt('${c.id}', '${c.postId}')">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteComment('${c.id}', '${c.postId}')">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+/** CRUD: Posts */
+async function createPost() {
+    const title = prompt('Title:');
+    if (!title) return;
+    const body = prompt('Body:') || '';
+    const viewsStr = prompt('Views (number):', '0') || '0';
+    const views = parseInt(viewsStr) || 0;
+
+    // compute new id as string
+    const maxId = allPosts.length ? Math.max(...allPosts.map(p => Number(p.id))) : 0;
+    const newId = (maxId + 1).toString();
+
+    const newPost = { id: newId, title, body, views, isDeleted: false };
+    try {
+        const res = await fetch(`${API_BASE}/posts`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(newPost) });
+        if (!res.ok) throw new Error('Failed to create post');
+        allPosts.push(newPost);
+        filteredPosts = [...allPosts];
+        renderTable();
+        updateStats();
+        showNotification('Post created');
+    } catch (err) { console.error(err); showError('Failed to create post'); }
+}
+
+async function openEditDialog(postId) {
+    const post = allPosts.find(p => p.id === postId);
+    if (!post) return;
+    const newTitle = prompt('Edit title:', post.title);
+    if (newTitle === null) return; // cancelled
+    const newBody = prompt('Edit body:', post.body || '');
+    const viewsStr = prompt('Views:', post.views || '0');
+    const views = parseInt(viewsStr) || 0;
+
+    try {
+        const res = await fetch(`${API_BASE}/posts/${postId}`, { method: 'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: newTitle, body: newBody, views }) });
+        if (!res.ok) throw new Error('Failed to update post');
+        post.title = newTitle; post.body = newBody; post.views = views;
+        renderTable();
+        showNotification('Post updated');
+    } catch (err) { console.error(err); showError('Failed to update post'); }
+}
+
+async function softDeletePost(postId) {
+    if (!confirm('Are you sure you want to soft-delete this post?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/posts/${postId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ isDeleted: true }) });
+        if (!res.ok) throw new Error('Failed');
+        const post = allPosts.find(p => p.id === postId);
+        if (post) post.isDeleted = true;
+        renderTable();
+        showNotification('Post soft-deleted');
+    } catch (err) { console.error(err); showError('Failed to delete post'); }
+}
+
+async function restorePost(postId) {
+    try {
+        const res = await fetch(`${API_BASE}/posts/${postId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ isDeleted: false }) });
+        if (!res.ok) throw new Error('Failed');
+        const post = allPosts.find(p => p.id === postId);
+        if (post) post.isDeleted = false;
+        renderTable();
+        showNotification('Post restored');
+    } catch (err) { console.error(err); showError('Failed to restore post'); }
+}
+
+/** Comments CRUD */
+async function createComment(postId) {
+    const input = document.getElementById(`new-comment-${postId}`);
+    const text = input.value.trim();
+    if (!text) return;
+    const maxId = allComments.length ? Math.max(...allComments.map(c => Number(c.id))) : 0;
+    const newId = (maxId + 1).toString();
+    const comment = { id: newId, postId: postId.toString(), text };
+    try {
+        const res = await fetch(`${API_BASE}/comments`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(comment) });
+        if (!res.ok) throw new Error('Failed');
+        allComments.push(comment);
+        input.value = '';
+        renderComments(postId);
+        renderTable();
+        showNotification('Comment added');
+    } catch (err) { console.error(err); showError('Failed to add comment'); }
+}
+
+function editCommentPrompt(commentId, postId) {
+    const comment = allComments.find(c => c.id === commentId);
+    if (!comment) return;
+    const newText = prompt('Edit comment:', comment.text);
+    if (newText === null) return;
+    updateComment(commentId, newText, postId);
+}
+
+async function updateComment(commentId, text, postId) {
+    try {
+        const res = await fetch(`${API_BASE}/comments/${commentId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
+        if (!res.ok) throw new Error('Failed');
+        const comment = allComments.find(c => c.id === commentId);
+        if (comment) comment.text = text;
+        renderComments(postId);
+        showNotification('Comment updated');
+    } catch (err) { console.error(err); showError('Failed to update comment'); }
+}
+
+async function deleteComment(commentId, postId) {
+    if (!confirm('Delete this comment?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/comments/${commentId}`, { method:'DELETE' });
+        if (!res.ok) throw new Error('Failed');
+        allComments = allComments.filter(c => c.id !== commentId);
+        renderComments(postId);
+        renderTable();
+        showNotification('Comment deleted');
+    } catch (err) { console.error(err); showError('Failed to delete comment'); }
+}
+
+/** UI helpers */
 function showNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'notification';
-    notification.textContent = message;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.classList.add('remove');
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
+    const n = document.createElement('div'); n.className = 'notification'; n.textContent = message; document.body.appendChild(n);
+    setTimeout(() => { n.classList.add('remove'); setTimeout(() => n.remove(), 300); }, 2500);
 }
+function showError(msg) { const tbody = document.getElementById('productsBody'); tbody.innerHTML = `<tr><td colspan="4" class="text-danger text-center py-5">${escapeHtml(msg)}</td></tr>`; }
+function escapeHtml(text) { const map = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }; return String(text).replace(/[&<>"']/g, m => map[m]); }
+function updateStats() { const stats = document.getElementById('stats'); const total = allPosts.length; const displayed = filteredPosts.length; stats.textContent = displayed === total ? `📊 Total: ${displayed} posts` : `📊 Showing ${displayed} of ${total} posts`; }
 
-/**
- * Show error
- */
-function showError(message) {
-    const tbody = document.getElementById('productsBody');
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-5"><i class="fas fa-exclamation-circle"></i><br>${escapeHtml(message)}</td></tr>`;
-}
-
-/**
- * Escape HTML
- */
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
-}
-
-/**
- * Update stats
- */
-function updateStats() {
-    const statsElement = document.getElementById('stats');
-    const total = allProducts.length;
-    const displayed = filteredProducts.length;
-    
-    if (displayed === total) {
-        statsElement.textContent = `📊 Total: ${displayed} products`;
-    } else {
-        statsElement.textContent = `📊 Showing ${displayed} of ${total} products`;
-    }
-}
-
-/**
- * Initialize
- */
-function init() {
-    console.log('🚀 Product Store initialized');
-    fetchProducts();
-}
-
-// Start
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-} else {
-    init();
-}
+/** Init */
+function init() { console.log('🚀 Posts app init'); fetchData(); document.getElementById('addPostBtn').onclick = createPost; }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

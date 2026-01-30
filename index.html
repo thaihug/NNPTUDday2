@@ -133,6 +133,16 @@
             transform: scale(1.01);
         }
 
+        /* soft-deleted row */
+        .deleted {
+            text-decoration: line-through;
+            opacity: 0.65;
+        }
+
+        .comments-row td {
+            background: #fafafa;
+        }
+
         .table tbody td {
             padding: 18px 15px;
             vertical-align: middle;
@@ -339,7 +349,7 @@
 
         <!-- Controls Section -->
         <div class="controls-section">
-            <div class="row g-3">
+            <div class="row g-3 align-items-center">
                 <!-- Search Input -->
                 <div class="col-md-6">
                     <div class="input-group">
@@ -350,20 +360,23 @@
                             type="text" 
                             id="searchInput" 
                             class="form-control search-input" 
-                            placeholder="Search by name, category..."
+                            placeholder="Search by title or body..."
                             onkeyup="handleSearch()"
                         >
                     </div>
                 </div>
 
-                <!-- Sort Buttons -->
+                <!-- Sort + Add -->
                 <div class="col-md-6">
-                    <div class="d-flex gap-2 flex-wrap">
-                        <button class="btn btn-sort" onclick="sortByName()" title="Sort by Name">
-                            <i class="fas fa-font"></i> Name <span id="nameIcon" class="sort-icon"></span>
+                    <div class="d-flex gap-2 flex-wrap justify-content-end">
+                        <button id="addPostBtn" class="btn btn-success btn-sort">
+                            <i class="fas fa-plus"></i> Add Post
                         </button>
-                        <button class="btn btn-sort" onclick="sortByPrice()" title="Sort by Price">
-                            <i class="fas fa-dollar-sign"></i> Price <span id="priceIcon" class="sort-icon"></span>
+                        <button class="btn btn-sort" onclick="sortByName()" title="Sort by Title">
+                            <i class="fas fa-font"></i> Title <span id="nameIcon" class="sort-icon"></span>
+                        </button>
+                        <button class="btn btn-sort" onclick="sortByViews()" title="Sort by Views">
+                            <i class="fas fa-eye"></i> Views <span id="viewsIcon" class="sort-icon"></span>
                         </button>
                         <button class="btn btn-sort" onclick="resetData()" title="Reset">
                             <i class="fas fa-redo"></i> Reset
@@ -378,28 +391,26 @@
             <table class="table table-hover" id="productsTable">
                 <thead>
                     <tr>
-                        <th><i class="fas fa-image"></i> Image</th>
-                        <th><i class="fas fa-tag"></i> Product Name</th>
-                        <th><i class="fas fa-list"></i> Category</th>
-                        <th><i class="fas fa-align-left"></i> Description</th>
-                        <th><i class="fas fa-money-bill"></i> Price</th>
-                        <th><i class="fas fa-shopping-cart"></i> Action</th>
+                        <th><i class="fas fa-tag"></i> Title</th>
+                        <th><i class="fas fa-align-left"></i> Body</th>
+                        <th><i class="fas fa-eye"></i> Views</th>
+                        <th><i class="fas fa-cog"></i> Action</th>
                     </tr>
                 </thead>
                 <tbody id="productsBody">
                     <tr>
-                        <td colspan="6" class="text-center py-5">
+                        <td colspan="4" class="text-center py-5">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
-                            <p class="mt-2">Loading products...</p>
+                            <p class="mt-2">Loading posts...</p>
                         </td>
                     </tr>
                 </tbody>
             </table>
             <div id="noDataMessage" class="no-data" style="display: none;">
                 <i class="fas fa-inbox"></i>
-                <p>No products found. Try adjusting your search.</p>
+                <p>No posts found. Try adjusting your search.</p>
             </div>
         </div>
 
